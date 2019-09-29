@@ -13,21 +13,20 @@ counter_inc(Key) ->
     counter_inc(Key, 1).
 
 counter_inc(Key, Amt) ->
-    Counter = get_counter(Key),
+    {ok, Counter} = get_counter(Key),
     counters:add(Counter, 1, Amt).
 
 -spec gauge_set(binary(), integer()) -> ok | {error, term()}.
 
 gauge_set(Key, Value) ->
-    Gauge = get_counter(Key), % might do get_gauge/1 if needed (e.g. if we use write_concurrency in counters)
+    {ok, Gauge} = get_gauge(Key),
     counters:put(Gauge, 1, Value).
-%% Note: I should add a mechanism to return an error when calling a counter key in gauge_set and vice versa
 
 
 %% TODO: polling backend, for now only prints the values
 %% TODO: Reset counters to 0 when polled
 poll() ->
-    Values = [{Key, counters:get(Counter, 1)} || {Key, Counter} <- get_counters()],
+    Values = [{Key, Type, counters:get(Counter, 1)} || {Key, Type, Counter} <- get_counters()],
     io:format(user, "~p~n", [Values]).
 
 % private
@@ -36,29 +35,65 @@ poll() ->
 
 % returns an existing counter ref or create a new one and returns its reference
 get_counter(Key) ->
-    case persistent_term:get({?MODULE, Key}, key_not_found) of
+    case persistent_term:get({?MODULE, counter, Key}, key_not_found) of
         key_not_found ->
-            CounterRef = counters:new(1, [atomics]),
-            % maybe write_concurrency would be better, but it comes at the
-            % price of potential "read inconsistency" and memory usage.
-            % Must investigate.
-            % Doc says add and sub could benefit from it, but not put and get,
-            % so gauges will most likely stay atomic.
-            persistent_term:put({?MODULE, Key}, CounterRef),
-            CounterRef;
+            case check_key(Key) of
+                false ->
+                    CounterRef = counters:new(1, [atomics]),
+                    % maybe write_concurrency would be better, but it comes at the
+                    % price of potential "read inconsistency" and memory usage.
+                    % Must investigate.
+                    % Doc says add and sub could benefit from it, but not put and get,
+                    % so gauges will most likely stay atomic.
+                    persistent_term:put({?MODULE, counter, Key}, CounterRef),
+                    {ok, CounterRef};
+                true ->
+                    {error, <<"key already registered">>}  %% TODO: specify which key
+            end;
         CounterRef ->
-            CounterRef
+            {ok, CounterRef}
+    end.
+
+get_gauge(Key) ->
+    case persistent_term:get({?MODULE, gauge, Key}, key_not_found) of
+        key_not_found ->
+            case check_key(Key) of
+                false ->
+                    GaugeRef = counters:new(1, [atomics]),
+                    persistent_term:put({?MODULE, gauge, Key}, GaugeRef),
+                    {ok, GaugeRef};
+                true ->
+                    {error, <<"key already registered">>}
+            end;
+        GaugeRef ->
+            {ok, GaugeRef}
     end.
 
 get_counters() ->
     % persistent term contains things unrelated to our counters that are filtered here
     Counters = lists:filter(fun(Elem) ->
         case Elem of
-            {{?MODULE, _Key}, _Counter} ->
+            {{?MODULE, _Type, _Key}, _Counter} ->
                 true;
             _ ->
                 false
         end
         end, persistent_term:get()),
-    % trimming the returned term to be of the form {Key, CounterRef}
-    lists:map(fun({{_Module, Key}, Val}) -> {Key, Val} end, Counters).
+    % trimming the returned term to be of the form {Key, Type, CounterRef}
+    lists:map(fun({{_Module, Type, Key}, Val}) -> {Key, Type, Val} end, Counters).
+
+% This is not pretty, should be refactored in something readable
+check_key(Key) ->
+    case lists:filter(fun(Elem) ->
+        case Elem of
+            {{?MODULE, _Type, Key}, _Counter} ->
+                true;
+            _ ->
+                false
+        end
+        end, persistent_term:get()) of
+        [] ->
+            false;
+        _  ->
+            true
+    end.
