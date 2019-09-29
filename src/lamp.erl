@@ -3,6 +3,7 @@
 -export([
     counter_inc/1,
     counter_inc/2,
+    gauge_set/2,
     poll/0
 ]).
 
@@ -14,6 +15,14 @@ counter_inc(Key) ->
 counter_inc(Key, Amt) ->
     Counter = get_counter(Key),
     counters:add(Counter, 1, Amt).
+
+-spec gauge_set(binary(), integer()) -> ok | {error, term()}.
+
+gauge_set(Key, Value) ->
+    Gauge = get_counter(Key), % might do get_gauge/1 if needed (e.g. if we use write_concurrency in counters)
+    counters:put(Gauge, 1, Value).
+%% Note: I should add a mechanism to return an error when calling a counter key in gauge_set and vice versa
+
 
 %% TODO: polling backend, for now only prints the values
 %% TODO: Reset counters to 0 when polled
