@@ -48,7 +48,7 @@ get_counter(Key) ->
                     persistent_term:put({?MODULE, counter, Key}, CounterRef),
                     {ok, CounterRef};
                 true ->
-                    {error, <<"key already registered">>}  %% TODO: specify which key
+                    {error, {<<"key already registered">>, Key}}
             end;
         CounterRef ->
             {ok, CounterRef}
@@ -63,7 +63,7 @@ get_gauge(Key) ->
                     persistent_term:put({?MODULE, gauge, Key}, GaugeRef),
                     {ok, GaugeRef};
                 true ->
-                    {error, <<"key already registered">>}
+                    {error, {<<"key already registered">>, Key}}
             end;
         GaugeRef ->
             {ok, GaugeRef}
