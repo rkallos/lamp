@@ -1,0 +1,4 @@
+-define(DIST_FIELDS, 3).
+-define(DIST_COUNT, 1).
+-define(DIST_MIN, 2).
+-define(DIST_MAX, 3).
